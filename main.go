@@ -12,7 +12,7 @@ func main() {
 	fmt.Println("Starting Nonogram Solver")
 
 	if len(os.Args) < 2 {
-		fmt.Println("Must provide a filename to a puzzle")
+		fmt.Println("Must provide a path to a json file for a puzzle")
 		return
 	}
 
