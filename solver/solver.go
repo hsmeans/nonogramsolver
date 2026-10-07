@@ -6,10 +6,14 @@ import (
 	"github.com/hsmeans/nonogramsolver/util"
 )
 
-type Solution struct {
-	Board [][]byte `json:"board"`
+func SolveNonogram(puzzle util.Puzzle) (Solution, bool) {
+	board := initializeBoard(puzzle)
+	solved := solve(puzzle, board)
+
+	return Solution{Board: board}, solved
 }
 
+// Creates an empty 2d byte array based on the size of the puzzle
 func initializeBoard(puzzle util.Puzzle) [][]byte {
 	r, c := len(puzzle.Rows), len(puzzle.Columns)
 	board := make([][]byte, r)
@@ -20,226 +24,229 @@ func initializeBoard(puzzle util.Puzzle) [][]byte {
 	return board
 }
 
-func SolveNonogram(puzzle util.Puzzle) {
-	board := initializeBoard(puzzle)
-
-	// while not solved (any spot is 0)
-	for boardNotFilled(board) {
-		// mark row hints
-		markRows(puzzle, board)
-		// mark col hints
-		markCols(puzzle, board)
-		// cross row hints
-		crossRows(puzzle, board)
-		// cross col hints
-		crossCols(puzzle, board)
-		// TODO: Need to fill
+// Attempts to solve the puzzle. If it cannot be solved by traditional technique,
+// then it will fall into trial and error. If it cannot be solved after that,
+// a partial solution will be stored in the board parameter, and the function will return false.
+func solve(puzzle util.Puzzle, board [][]byte) bool {
+	// On the initial call, this will likely be the only part that will run.
+	// If cannot be solved, return false.
+	if !canSolve(puzzle, board) {
+		return false
 	}
-}
 
-func crossCols(puzzle util.Puzzle, board [][]byte) {
-	for c, hints := range puzzle.Columns {
-		// no hints, nothing to check
-		if len(hints) == 0 {
-			continue
-		}
-
-		for _, r := range crossLine(util.GetColumn(board, c), hints) {
-			board[r][c] = 'x'
-		}
+	r, c, found := firstUnknown(board)
+	// If there are no unknowns, then the puzzle has been solved
+	if !found {
+		return true
 	}
-}
 
-func crossRows(puzzle util.Puzzle, board [][]byte) {
-	for r, hints := range puzzle.Rows {
-		// no hints, nothing to check
-		if len(hints) == 0 {
-			continue
-		}
-
-		row := board[r]
-		for _, c := range crossLine(row, hints) {
-			row[c] = 'x'
-		}
-	}
-}
-
-func crossLine(line []byte, hints []int) []int {
-	// count the marked sections of the line
-	// if the number of marked sections equals the number of hints,
-	// then we have known ranges that are the length of the sections +/- the size of the respective hint minus the length of the section
-	// known range = len(section) +- (hint - len(section))
-	// therefore, x out everything outside of the known range
-	// if the sections equal the hints, the line will be filled out
-
-	numSections := 0
-	inSection := false
-	for _, cell := range line {
-		if cell == 'o' {
-			if !inSection {
-				inSection = true
-				numSections++
+	// Unknowns were found after exhausting traditional techniques.
+	// Time for trial and error
+	for _, guess := range []byte{'o', 'x'} {
+		attempt := cloneBoard(board)
+		attempt[r][c] = guess
+		if solve(puzzle, attempt) {
+			for i := range board {
+				copy(board[i], attempt[i])
 			}
-		} else {
-			inSection = false
+			return true
 		}
 	}
 
-	if numSections == len(hints) {
-		i, j := 0, 0
-
-	}
-
-	// If not all ranges are known ranges (num sections != num hints)
-	// then check if there are known ranges within the uncomfirmed edges
-	// i, hint[j] + 1
-	// i - (hint[j] + 1), i
-	// If a section exists and len(section) == respective hint:
-	// cross out from start/end to the first cell after the section
-
-	return []int{}
+	// Still can't solve after trial and error.
+	// If initial call will return false with a partial solution stored in board parameter.
+	return false
 }
 
-func markCols(puzzle util.Puzzle, board [][]byte) {
-	for c, hints := range puzzle.Columns {
-		// no hints, nothing to check
-		if len(hints) == 0 {
-			continue
-		}
-
-		for _, r := range markLine(util.GetColumn(board, c), hints) {
-			board[r][c] = 'o'
-		}
-	}
-}
-
-func markRows(puzzle util.Puzzle, board [][]byte) {
-	for r, hints := range puzzle.Rows {
-		// no hints, nothing to check
-		if len(hints) == 0 {
-			continue
-		}
-
-		row := board[r]
-		for _, c := range markLine(row, hints) {
-			row[c] = 'o'
-		}
-	}
-}
-
-// Given a single row or column and its hints, return the indices of the cells
-// that must be filled no matter how the hints end up being placed.
-func markLine(line []byte, hints []int) []int {
-	// go through the hints, capture the ranges for each check
-	// for example, [7, 1] with no crosses will end up being [[[0, 6], [1, 7]], [[8, 8], [9, 9]]]
-	hintRanges := make([][][]int, len(hints))
-	for i := range hintRanges {
-		hintRanges[i] = make([][]int, 0)
-	}
-	// check how it fits if starting at the rightmost possible spot
-	// go through each spot in the row, and move through it and current hint, if you hit an X, reset the hint and continue
-	// when a hint has been iterated, capture the range and move on to the next hint
-
-	hintIdx := 0
-	hint := hints[hintIdx]
-	cur := hint
-
-	low, high := 0, 0
-	for i := 0; i < len(line); i++ {
-		cell := line[i]
-		// if there's an x, we cant put the hint here, restart on the next cell, otherwise keep going
-		if cell != 'x' {
-			high++
-			cur--
-		} else {
-			low, high = i+1, i+1
-			cur = hint
-		}
-
-		// if we've made it through the hint, save the range and move onto the next hint
-		if cur == 0 {
-			// high is one past the last cell of the run, so the inclusive range is [low, high-1]
-			hintRange := [2]int{low, high - 1}
-			hintRanges[hintIdx] = append(hintRanges[hintIdx], hintRange[:])
-			hintIdx++
-			// no more hints, move on
-			if hintIdx >= len(hints) {
-				break
-			}
-			hint = hints[hintIdx]
-			cur = hint
-			// runs need a gap between them, so skip the cell right after this run
-			i++
-			low, high = i+1, i+1
-		}
-	}
-
-	// check how it fits if starting at the leftmost possible spot
-	hintIdx = len(hints) - 1
-	hint = hints[hintIdx]
-	cur = hint
-
-	end := len(line) - 1
-	low, high = end, end
-	for i := end; i >= 0; i-- {
-		cell := line[i]
-
-		// if there's an x, we cant put the hint here, restart on the next cell, otherwise keep going
-		if cell != 'x' {
-			low--
-			cur--
-		} else {
-			low, high = i-1, i-1
-			cur = hint
-		}
-
-		// if we've made it through the hint, save the range and move onto the next hint
-		if cur == 0 {
-			// low is one before the first cell of the run, so the inclusive range is [low+1, high]
-			hintRange := [2]int{low + 1, high}
-			hintRanges[hintIdx] = append(hintRanges[hintIdx], hintRange[:])
-			hintIdx--
-			// no more hints, move on
-			if hintIdx < 0 {
-				break
-			}
-			hint = hints[hintIdx]
-			cur = hint
-			// runs need a gap between them, so skip the cell right before this run
-			i--
-			low, high = i-1, i-1
-		}
-	}
-
-	// the overlap of the two placements is what we can safely mark
-	marked := make([]int, 0)
-	for _, ranges := range hintRanges {
-		lower, higher := ranges[0], ranges[1]
-		marked = append(marked, getOverlap(lower, higher)...)
-	}
-
-	return marked
-}
-
-// Given two ranges ([1, 6], [4, 8])
-// return a list of all numbers in the intersection of the ranges
-// [4, 5, 6]
-func getOverlap(lower, higher []int) []int {
-	if lower[1] < higher[0] {
-		return []int{}
-	}
-
-	x, y := max(lower[0], higher[0]), min(lower[1], higher[1])
-
-	return util.RangeInts(x, y)
-}
-
-func boardNotFilled(board [][]byte) bool {
-	for _, col := range board {
-		if slices.Contains(col, 0) {
+// Attepts to solve the puzzle.
+// If the puzzle is a True Nonogram, this function is all that is needed.
+// If there are no logic errors in the puzzle, return true.
+func canSolve(puzzle util.Puzzle, board [][]byte) bool {
+	for {
+		// If any line results in a contradiction/logic error, it'll return false immediately
+		rowsChanged, ok := solveRows(puzzle, board)
+		if !ok {
 			return false
 		}
+		colsChanged, ok := solveCols(puzzle, board)
+		if !ok {
+			return false
+		}
+
+		// If nothing changed, we've done as much as we can.
+		if !rowsChanged && !colsChanged {
+			return true
+		}
+	}
+}
+
+// Attempts to solve to columns of the board
+func solveCols(puzzle util.Puzzle, board [][]byte) (bool, bool) {
+	changed := false
+	for c, hints := range puzzle.Columns {
+		fills, crosses, ok := solveLine(util.GetColumn(board, c), hints)
+		if !ok {
+			return changed, false
+		}
+		for _, r := range fills {
+			board[r][c] = 'o'
+		}
+		for _, r := range crosses {
+			board[r][c] = 'x'
+		}
+		changed = changed || len(fills) > 0 || len(crosses) > 0
+	}
+	return changed, true
+}
+
+// Attempts to solve for the rows of the board
+func solveRows(puzzle util.Puzzle, board [][]byte) (bool, bool) {
+	changed := false
+	for r, hints := range puzzle.Rows {
+		row := board[r]
+		fills, crosses, ok := solveLine(row, hints)
+		if !ok {
+			return changed, false
+		}
+		for _, c := range fills {
+			row[c] = 'o'
+		}
+		for _, c := range crosses {
+			row[c] = 'x'
+		}
+		changed = changed || len(fills) > 0 || len(crosses) > 0
+	}
+	return changed, true
+}
+
+// Attempts to solve the given line with the hints
+func solveLine(line []byte, hints []int) (fills, crosses []int, ok bool) {
+	left, ok := leftmostStarts(line, hints)
+	// No combination of positions worked with the hints
+	if !ok {
+		return nil, nil, false
+	}
+	// No need to check here since if leftmost doesn't work then rightmost doesn't work
+	right, _ := rightmostStarts(line, hints)
+
+	covered := make([]bool, len(line))
+	for hintIdx, hint := range hints {
+		// These are guaranteed overlaps of left and right hints
+		for i := right[hintIdx]; i < left[hintIdx]+hint; i++ {
+			if line[i] == 0 {
+				fills = append(fills, i)
+			}
+		}
+
+		// These are in the bounds of possibility for the respective hint
+		for i := left[hintIdx]; i < right[hintIdx]+hint; i++ {
+			covered[i] = true
+		}
 	}
 
-	return true
+	// Anything not covered is a cross
+	for i, cell := range line {
+		if !covered[i] && cell == 0 {
+			crosses = append(crosses, i)
+		}
+	}
+
+	return fills, crosses, true
+}
+
+// Returns the leftmost starts for each hint
+func leftmostStarts(line []byte, hints []int) ([]int, bool) {
+	hintStarts := make([]int, len(hints))
+
+	// DFS helper function for returning the first possible combination of leftmost starts
+	var place func(hintIdx, pos int) bool
+	place = func(hintIdx, pos int) bool {
+		// If only one hint, return
+		if hintIdx == len(hints) {
+			return pos >= len(line) || !slices.Contains(line[pos:], 'o')
+		}
+
+		hint := hints[hintIdx]
+		for cell := pos; cell+hint <= len(line); cell++ {
+			// if the hint fits at the current cell, track it and check the next hint
+			if fits(line, cell, hint) {
+				hintStarts[hintIdx] = cell
+				if place(hintIdx+1, cell+hint+1) {
+					// We found valid leftmost starts
+					return true
+				}
+			}
+
+			/*
+				If there's a filled cell here and its not a valid position,
+				the current hint cannot start here, either because it doesn't fit
+				or because subsequent hints cant be placed.
+				This is a dead end for this combination.
+			*/
+			if line[cell] == 'o' {
+				break
+			}
+		}
+		// Try another combination.
+		// If this returns from the initial call, then no possible combination
+		// works, and there is a contradiction in the puzzle or board.
+		return false
+	}
+
+	return hintStarts, place(0, 0)
+}
+
+// Returns the rightmost starts for each hint
+func rightmostStarts(line []byte, hints []int) ([]int, bool) {
+	// Reverse the line so we can re-use the logic from leftmostStarts
+	rev := slices.Clone(line)
+	slices.Reverse(rev)
+	revHints := slices.Clone(hints)
+	slices.Reverse(revHints)
+
+	revStarts, ok := leftmostStarts(rev, revHints)
+	if !ok {
+		return nil, false
+	}
+
+	starts := make([]int, len(hints))
+	// Since we reversed the line earlier,
+	// we have to reverse the hints along with their board position
+	for hintIdx, hint := range hints {
+		starts[hintIdx] = len(line) - revStarts[len(hints)-1-hintIdx] - hint
+	}
+
+	return starts, true
+}
+
+// Returns if a hint can fit in the section starting at cell
+func fits(line []byte, cell, hint int) bool {
+	// If any part of the section contains a cross
+	if slices.Contains(line[cell:cell+hint], 'x') {
+		return false
+	}
+
+	// Check edge case if the hint reaches the end of the line (return true)
+	// Otherwise, return true as long as there is not a filled cell after the section.
+	return cell+hint == len(line) || line[cell+hint] != 'o'
+}
+
+// Returns true if there is an empty cell in the board
+func firstUnknown(board [][]byte) (int, int, bool) {
+	for r, row := range board {
+		if c := slices.Index(row, 0); c >= 0 {
+			return r, c, true
+		}
+	}
+
+	return 0, 0, false
+}
+
+// Clones the board for guessing
+func cloneBoard(board [][]byte) [][]byte {
+	clone := make([][]byte, len(board))
+	for i, row := range board {
+		clone[i] = slices.Clone(row)
+	}
+	return clone
 }
